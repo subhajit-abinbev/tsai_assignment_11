@@ -1,0 +1,15 @@
+# Core
+tokenizers==0.15.2
+huggingface_hub>=0.23.0
+datasets
+tqdm
+regex
+beautifulsoup4
+lxml
+requests
+gradio
+# Jupyter
+notebook
+ipykernel
+# Optional
+sentencepiece

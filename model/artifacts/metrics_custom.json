@@ -1,0 +1,10 @@
+{
+  "lines_sampled": 5000,
+  "total_chars": 26444005,
+  "total_bytes": 67426621,
+  "total_tokens": 5811945,
+  "chars_per_token": 4.549940682508179,
+  "bytes_per_token": 11.601386627024171,
+  "assignment_compression_ratio": 4.549940682508179,
+  "approx_byte_compression_ratio": 5.8006933135120855
+}
