@@ -1,153 +1,82 @@
-import re
-from collections import Counter, defaultdict
-from dataclasses import dataclass
-from typing import List, Tuple, Dict, Iterable
+# Bengali BPE Tokenizer Project
 
-@dataclass
-class BPEResult:
-    vocab: Dict[str, int]
-    merges: List[Tuple[str, str]]
-    token2id: Dict[str, int]
-    id2token: Dict[int, str]
+## Goals
+- Train a BPE tokenizer (vocab > 5000) on Bengali Wikipedia dump.
+- Achieve compression ratio >= 3 (defined as characters per token, plus alternative metrics).
+- Upload tokenizer to Hugging Face Hub.
+- Deploy interactive Space for tokenization demos.
 
-class CustomBPE:
-    """
-    Educational (not heavily optimized) BPE for demonstration.
-    Operates on whitespace-delimited words and splits them into characters first.
-    """
-    def __init__(self, vocab_size: int = 8000, min_freq: int = 2, progress_every: int = 100):
-        self.vocab_size = vocab_size
-        self.min_freq = min_freq
-        self.progress_every = progress_every
-        self.merges = []
-        self.token2id = {}
-        self.id2token = {}
+## Components
+1. `training_notebook.ipynb`: End-to-end workflow.
+2. `src/custom_bpe.py`: Educational custom BPE implementation.
+3. `src/utils.py`: Helper functions (download, cleaning, metrics).
+4. `space/app.py`: Gradio app for Hugging Face Space.
 
-    @staticmethod
-    def _word_to_symbols(word: str) -> List[str]:
-        # Append </w> to mark word boundary (classic BPE style)
-        return list(word) + ["</w>"]
+## Setup
+```bash
+python -m venv .venv
+source .venv/bin/activate  # (Windows: .venv\\Scripts\\activate)
+pip install -r requirements.txt
+```
 
-    def _get_stats(self, corpus_tokens: List[List[str]]) -> Counter:
-        stats = Counter()
-        for word_tokens in corpus_tokens:
-            for i in range(len(word_tokens) - 1):
-                pair = (word_tokens[i], word_tokens[i+1])
-                stats[pair] += 1
-        return stats
+## Run Notebook
+```bash
+jupyter lab
+# Open training_notebook.ipynb
+```
 
-    def _merge_corpus(self, corpus_tokens: List[List[str]], pair: Tuple[str, str]) -> List[List[str]]:
-        pattern = re.escape(pair[0]) + r"\s+" + re.escape(pair[1])
-        repl = pair[0] + pair[1]
-        new_corpus = []
-        for tokens in corpus_tokens:
-            if not tokens:
-                new_corpus.append(tokens)
-                continue
-            s = " ".join(tokens)
-            # Use regex to merge occurrences
-            new_s = re.sub(pattern, repl, s)
-            new_corpus.append(new_s.split(" "))
-        return new_corpus
+## Train & Upload
+Inside the notebook you'll:
+- Download: Bengali Wikipedia dump (`bnwiki-latest-pages-articles.xml.bz2`)
+- Extract with WikiExtractor
+- Normalize & clean
+- Train:
+  - Custom BPE (educational, slower)
+  - Hugging Face `tokenizers` BPE (fast)
+- Evaluate compression metrics
+- Push to Hugging Face:
+  - Create repo: `huggingface-cli repo create bengali-bpe-tokenizer`
+  - Use notebook cell to push artifacts
 
-    def train(self, text_iter: Iterable[str]) -> BPEResult:
-        # Build initial corpus word list
-        vocab_counter = Counter()
-        for line in text_iter:
-            for word in line.strip().split():
-                if word:
-                    vocab_counter[word] += 1
+## Compression Metrics
+We compute:
+- `chars_per_token = total_characters / total_tokens`
+- `bytes_per_token = total_bytes / total_tokens`
+- `ratio_variant = total_characters / total_tokens` (used as "compression ratio" for assignment target ≥ 3)
+- Optional: serialization size vs raw text size (approx).
 
-        # Convert to list of token sequences
-        corpus_tokens = []
-        for word, freq in vocab_counter.items():
-            if freq >= self.min_freq:
-                symbols = self._word_to_symbols(word)
-                # replicate frequency logically by storing frequency count
-                corpus_tokens.extend([symbols] * min(freq, 5))  # small cap to control explosion
-        # Iterative merges
-        for step in range(self.vocab_size):
-            stats = self._get_stats(corpus_tokens)
-            if not stats:
-                break
-            pair, freq = stats.most_common(1)[0]
-            if freq < self.min_freq:
-                break
-            corpus_tokens = self._merge_corpus(corpus_tokens, pair)
-            self.merges.append(pair)
-            if (step + 1) % self.progress_every == 0:
-                print(f"[CustomBPE] Merge {step+1}: {pair} freq={freq} | merges so far={len(self.merges)}")
+### Latest Training Snapshot (2025-11-07)
+- **Training subset:** first 5000 lines of `clean_corpus.txt`
+- **Tokenizer config:** `vocab_size=16000`, `min_freq=3`, `dropout=0.05`, normalization via `normalize_bengali(map_digits=True, keep_latin=True)`
+- **Lines sampled for metrics:** 5000
+- **Results:**
+  - `chars_per_token` = 4.5499
+  - `bytes_per_token` = 11.6014
+  - `assignment_compression_ratio` = 4.5499
+  - `approx_byte_compression_ratio` = 5.8007
+  - `total_tokens` = 5,811,945 | `total_chars` = 26,444,005 | `total_bytes` = 67,426,621
 
-            if len(self.base_vocab()) + len(self.merges) >= self.vocab_size:
-                break
+These figures meet the ≥3 compression ratio requirement and reflect the current Hugging Face deployment artifacts.
 
-        # Build final vocab
-        final_vocab = Counter()
-        for tokens in corpus_tokens:
-            for t in tokens:
-                final_vocab[t] += 1
+## Hugging Face Space
+`space/app.py` loads the tokenizer (once uploaded) and exposes:
+- Encode text
+- Decode tokens
+- Show tokens, IDs, lengths, average chars per token
 
-        sorted_vocab = [tok for tok, _ in final_vocab.most_common()]
-        self.token2id = {tok: i for i, tok in enumerate(sorted_vocab)}
-        self.id2token = {i: tok for tok, i in self.token2id.items()}
+## Reproducibility
+- Set random seeds
+- Deterministic merges
+- Log merges & vocab coverage stats
 
-        return BPEResult(
-            vocab=final_vocab,
-            merges=self.merges,
-            token2id=self.token2id,
-            id2token=self.id2token
-        )
+## License
+Wikipedia content: CC BY-SA 3.0  
+Code: MIT (adjust if needed)
 
-    def base_vocab(self):
-        # characters + </w>
-        chars = set()
-        for pair in self.merges:
-            for p in pair:
-                for c in p:
-                    chars.add(c)
-        chars.add("</w>")
-        return chars
+## Next Steps
+- Optionally add Bengali news + books for broader coverage
+- Add script to benchmark vs SentencePiece
+- Add perplexity-like proxy (subword fragmentation rate)
 
-    def encode_word(self, word: str) -> List[str]:
-        # Greedy apply merges
-        tokens = self._word_to_symbols(word)
-        merges_as_strings = {"".join(p): p for p in self.merges}
-        merged = True
-        while merged:
-            merged = False
-            i = 0
-            while i < len(tokens) - 1:
-                pair = tokens[i] + tokens[i+1]
-                if pair in merges_as_strings:
-                    tokens = tokens[:i] + [pair] + tokens[i+2:]
-                    merged = True
-                else:
-                    i += 1
-        return tokens
-
-    def encode(self, text: str) -> List[int]:
-        result_ids = []
-        for word in text.strip().split():
-            for tok in self.encode_word(word):
-                if tok in self.token2id:
-                    result_ids.append(self.token2id[tok])
-                else:
-                    # Fallback to chars
-                    for ch in tok:
-                        result_ids.append(self.token2id.get(ch, self.token2id.get("</w>", 0)))
-        return result_ids
-
-    def decode(self, ids: List[int]) -> str:
-        tokens = [self.id2token.get(i, "") for i in ids]
-        words = []
-        current = []
-        for t in tokens:
-            if t.endswith("</w>"):
-                current.append(t.replace("</w>", ""))
-                words.append("".join(current))
-                current = []
-            else:
-                current.append(t)
-        if current:
-            words.append("".join(current))
-        return " ".join(words)
+## Contact
+Author: (Your Name / GitHub handle)
